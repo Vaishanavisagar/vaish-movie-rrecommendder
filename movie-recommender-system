@@ -1,0 +1,131 @@
+
+
+import streamlit as st
+
+import pickle
+import pandas as pd
+import requests
+import random
+
+# ===== Set background image and top navbar color =====
+def add_bg_from_url(url, opacity=0.3):
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("{url}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        .main {{
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 2rem;
+            border-radius: 10px;
+        }}
+        header[data-testid="stHeader"] {{
+            background-color: black;
+        }}
+        header[data-testid="stHeader"]::before {{
+            box-shadow: none;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+bg_url = "https://img.freepik.com/free-photo/movie-background-collage_23-2149876028.jpg"
+add_bg_from_url(bg_url)
+
+# ===== Load data =====
+try:
+    movie_dict = pickle.load(open('movie_dict.pkl', 'rb'))
+    movies = pd.DataFrame(movie_dict)
+    similarity = pickle.load(open('similarity.pkl', 'rb'))
+except FileNotFoundError:
+    st.error("Data files not found.")
+    st.stop()
+
+# ===== Fetch poster image =====
+def fetch_poster(movie_id):
+    try:
+        response = requests.get(
+            f'https://api.themoviedb.org/3/movie/{movie_id}?api_key=0142cd68eb9924afa527cf63b403f505&language=en-US',
+            timeout=5
+        )
+        response.raise_for_status()
+        data = response.json()
+        if data.get('poster_path'):
+            return f"https://image.tmdb.org/t/p/w500/{data['poster_path']}"
+        return None
+    except:
+        return None
+
+# ===== Recommend movies (3 to 4 with similarity scores) =====
+def recommend(movie):
+    try:
+        movie_index = movies[movies['title'] == movie].index[0]
+        distances = similarity[movie_index]
+        top_candidates = sorted(list(enumerate(distances)), reverse=True, key=lambda x: x[1])[1:11]
+        how_many = random.choice([3, 4])
+        selected = random.sample(top_candidates, how_many)
+
+        recommendations = []
+        for i in selected:
+            movie_id = movies.iloc[i[0]].movie_id
+            title = movies.iloc[i[0]].title
+            poster = fetch_poster(movie_id)
+            similarity_score = round(distances[i[0]] * 100, 2)  # convert to percentage
+            if poster:
+                recommendations.append((title, poster, similarity_score))
+
+        return recommendations
+    except:
+        return []
+
+# ===== Streamlit UI =====
+st.markdown("<h1 style='color:#FFFF;'>🎬 Movie Recommender System</h1>", unsafe_allow_html=True)
+
+selected_movie_name = st.selectbox(
+    "Select a movie to get recommendations:",
+    movies['title'].values
+)
+
+if st.button('Recommend'):
+    recommendations = recommend(selected_movie_name)
+
+    if not recommendations:
+        st.warning("No recommendations available right now. Try another movie.")
+    else:
+        cols = st.columns(len(recommendations))
+        for col, (name, poster, score) in zip(cols, recommendations):
+            with col:
+                st.text(name)
+                st.image(poster)
+                st.write(f"Match Strength: {score}%")
+                st.progress(int(score))
+
+# ===== Footer =====
+st.markdown(
+    """
+    <style>
+    .footer {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        background-color: rgba(0,0,0,0.8);
+        color: white;
+        text-align: center;
+        padding: 10px;
+        font-size: 14px;
+        z-index: 100;
+    }
+    </style>
+    <div class="footer">
+        Made with ❤️ by Vaishnavi | Movie Recommender System 🎬
+    </div>
+    """,
+    unsafe_allow_html=True
+)
